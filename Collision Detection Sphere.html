@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Collision Detection and Resolve by Peter L. 2018-08-27</title>
+</head>
+<body onload="Init()">
+   
+<canvas id="myCanvas" width="1200" height="1000" style="border: 1px solid #c3c3c3;">
+    Your browser does not support the HTML5 canvas tag.
+</canvas>
+
+<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.2.6/jquery.min.js"></script>
+<script type="text/javascript">
+
+    var px = 350;
+    var py = 200;
+
+    var vx = 0;
+    var vy = 0;
+
+    var mouse_x = 0;
+    var mouse_y = 0;
+
+    var WIDTH = 1200;
+    var HEIGHT = 900;
+
+    var SPHERE_RADIUS = 30;
+
+    var c = document.getElementById("myCanvas");
+    var ctx = c.getContext("2d");
+
+    var IsHittingAnySphere = false;
+
+    var containerX = document.getElementById("myCanvas").offsetLeft;
+    var containerY = document.getElementById("myCanvas").offsetTop;
+
+    var lines = [
+        { x: 100, y: 100, x2: 400, y2: 400, overlap: 0 },
+        { x: 400, y: 400, x2: 600, y2: 80, overlap: 0 },
+        { x: 0, y: 730, x2: 800, y2: 800, overlap: 0 },
+        { x: 800, y: 800, x2: 900, y2: 900, overlap: 0 },
+        { x: 600, y: 380, x2: 900, y2: 380, overlap: 0 },
+        { x: 900, y: 380, x2: 700, y2: 590, overlap: 0 },
+        { x: 0, y: 580, x2: 900, y2: 690, overlap: 0 },
+        { x: 680, y: 580, x2: 680, y2: 690, overlap: 0 },
+        { x: 720, y: 150, x2: 800, y2: 290, overlap: 0 }
+    ];
+
+
+    var spheres = [
+        { x: 100, y: 100, },
+        { x: 400, y: 400 },
+        { x: 0, y: 730 },
+        { x: 800, y: 800 },
+        { x: 600, y: 380 },
+        { x: 900, y: 380 },
+        { x: 0, y: 580 },
+        { x: 680, y: 580 },
+        { x: 720, y: 150 },
+        { x: 800, y: 290 }
+    ];
+
+
+    var keys = {};
+
+    $(document).keydown(function(e) {
+        switch (e.keyCode) {
+        case 87:
+            vy -= 1;
+            //move_up();
+            break;
+        case 83:
+            vy += 1;
+            //move_up();
+            break;
+        case 65:
+            vx -= 1;
+            //move_up();
+            break;
+        case 68:
+            vx += 1;
+            //move_up();
+            break;
+        case 32:
+            vy -= 9;
+            break;
+        case 80:
+            //Case 'P'
+            break;
+        case 77:
+            // Case 'M'
+            break;
+        case 13:
+            break;
+        default:
+            break;
+        }
+        keys[e.which] = true;
+    });
+
+
+    function findPos(obj) {
+        var curleft = 0, curtop = 0;
+        if (obj.offsetParent) {
+            do {
+                curleft += obj.offsetLeft;
+                curtop += obj.offsetTop;
+            } while (obj = obj.offsetParent);
+            return { x: curleft, y: curtop };
+        }
+        return undefined;
+    }
+
+    $("#myCanvas").mousemove(function(e) {
+        var pos = findPos(this);
+        mouse_x = e.pageX - pos.x;
+        mouse_y = e.pageY - pos.y;
+
+    });
+
+
+    $("#myCanvas").click(function(e) {
+        px = e.pageX;
+        py = e.pageY;
+
+    });
+
+
+    var LineLength = function(x, y, x0, y0) {
+        return Math.sqrt((x -= x0) * x + (y -= y0) * y);
+    };
+
+    function LineNormal(x, y, x2, y2) {
+        var vx2 = x2 - x;
+        var vy2 = y2 - y;
+
+        var length = Math.sqrt(vx2 * vx2 + vy2 * vy2);
+
+        this.dx = (vy2) / length;
+        this.dy = (-vx2) / length;
+    }
+
+    function LineNormalized(x, y, x2, y2) {
+        var vx2 = x2 - x;
+        var vy2 = y2 - y;
+
+        var length = Math.sqrt(vx2 * vx2 + vy2 * vy2);
+
+        this.dx = (vx2) / length;
+        this.dy = (vy2) / length;
+    }
+
+
+    function ClosetPointOnLine(ax, ay, bx, by, px, py) {
+        var APx = px - ax;
+        var APy = py - ay;
+        var ABx = bx - ax;
+        var ABy = by - ay;
+        var ab2 = ABx * ABx + ABy * ABy;
+        var ap_ab = APx * ABx + APy * ABy;
+        var t = ap_ab / ab2;
+
+        if (t < 0.0) t = 0.0;
+        else if (t > 1.0) t = 1.0;
+
+        this.x = ax + ABx * t;
+        this.y = ay + ABy * t;
+    }
+
+
+    var Init = function() {
+
+        GameLoop();
+    }
+
+    var drawLines = function() {
+        ctx.strokeStyle = "#299";
+        ctx.fillStyle = "#FFFF00";
+        for (var i = 0; i < lines.length; i++) {
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(lines[i].x, lines[i].y);
+            ctx.lineTo(lines[i].x2, lines[i].y2);
+            ctx.stroke();
+        }
+
+
+        ctx.strokeStyle = "#299";
+        ctx.fillStyle = "#FFFF00";
+
+        for (var i = 0; i < lines.length; i++) {
+
+            var xmid = (lines[i].x + lines[i].x2) / 2;
+            var ymid = (lines[i].y + lines[i].y2) / 2;
+
+            var ln = new LineNormal(lines[i].x, lines[i].y, lines[i].x2, lines[i].y2);
+
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(xmid, ymid);
+            ctx.lineTo(xmid + ln.dx * 30, ymid + ln.dy * 30);
+            ctx.stroke();
+        }
+
+
+        ctx.strokeStyle = "#GGG";
+        ctx.fillStyle = "#FFFF00";
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(px + vx, py + vy);
+        ctx.stroke();
+    }
+
+
+    var drawCanvasBox = function() {
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+    }
+
+
+    var AddGravity = function(gravity) {
+        if (vy < gravity)
+            vy += 0.5;
+
+    }
+
+    var GetClosestLineIndex = function(px, py) {
+        //Get the closest Line
+        var closestLineIndex = 0;
+        var temp = 999999;
+        for (var i = 0; i < lines.length; i++) {
+            var closestpoint = new ClosetPointOnLine(lines[i].x, lines[i].y, lines[i].x2, lines[i].y2, px, py);
+            var length = LineLength(px, py, closestpoint.x, closestpoint.y);
+            //Get the smallest diff first, so we take the wall we are closest to.
+            if (length < temp) {
+                temp = length;
+                closestLineIndex = i;
+            }
+        }
+        return closestLineIndex;
+    }
+
+    var GetClosestSphereIndex = function(px, py) {
+        //Get the closest Line
+        var closestSphereIndex = 0;
+        var temp = 999999;
+        for (var i = 0; i < spheres.length; i++) {
+            var length = LineLength(px, py, spheres[i].x, spheres[i].y);
+            //Get the smallest diff first, so we take the sphere we are closest to.
+            if (length < temp) {
+                temp = length;
+                closestSphereIndex = i;
+            }
+        }
+        return closestSphereIndex;
+    }
+
+    var GetClosestSphereSphereIndexes = function() {
+        //Get the closest Line
+        var closestSphereIndexA = 0;
+        var closestSphereIndexB = 0;
+        var temp = 999999;
+        for (var i = 0; i < spheres.length; i++) {
+            for (var j = 0; j < spheres.length; j++) {
+                //we dont compare the same sphere, if so , it would always be closest =)
+                if (i === j) continue;
+                var length = LineLength(spheres[i].x, spheres[i].y, spheres[j].x, spheres[j].y);
+                //Get the smallest diff first, so we take the sphere we are closest to.
+                if (length < temp) {
+                    temp = length;
+                    closestSphereIndexA = i;
+                    closestSphereIndexB = j;
+                }
+            }
+        }
+        this.a = closestSphereIndexA;
+        this.b = closestSphereIndexB;
+    }
+
+
+    function compare(a, b) {
+        if (a.overlap > b.overlap)
+            return 1;
+        if (a.overlap < b.overlap)
+            return -1;
+        return 0;
+    }
+
+    var ProjectPointOnLine = function(ax, ay, bx, by, px, py) {
+        var ABx = (bx - ax) / lineLength(ax, ay, bx, by);
+        var ABy = (by - ay) / lineLength(ax, ay, bx, by);
+        var APx = px - ax;
+        var APy = py - ay;
+        var dot = ABx * APx + ABy * APy;
+        this.x = ax + ABx * dot;
+        this.y = ay + ABy * dot;
+    };
+
+
+    var drawBall = function() {
+        ctx.beginPath();
+        ctx.fillStyle = "#FFFF00";
+        ctx.arc(px, py, SPHERE_RADIUS, 0, Math.PI * 2, true);
+        ctx.closePath();
+        ctx.fill();
+
+        var closest = GetClosestLineIndex(px, py);
+        var closestpoint = new ClosetPointOnLine(lines[closest].x,
+            lines[closest].y,
+            lines[closest].x2,
+            lines[closest].y2,
+            px,
+            py);
+
+        ctx.beginPath();
+        ctx.fillStyle = "#FFFF00";
+        ctx.arc(closestpoint.x, closestpoint.y, 10, 0, Math.PI * 2, true);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillText("Click on Mouse to select new Position", 50, 50);
+        ctx.fillStyle = "rgba(0, 255, 255,1)";
+        ctx.font = "11pt Verdana";
+        ctx.fillText("px:" + px + "vx: " + vx, 50, 90);
+        ctx.fillText("py:" + py + "vy: " + vy, 50, 110);
+        ctx.fillText("w = up, a = left, d = right, s = down, space = jump", 50, 130);
+        ctx.fillText("Sphere Radius: " + SPHERE_RADIUS, 50, 150);
+
+
+        var velocityScalar = LineLength(0, 0, vx, vy);
+        ctx.fillText("Velocity Length: " + velocityScalar, 50, 170);
+        
+    }
+
+    var drawSpheres = function() {
+        for (var i = 0; i < spheres.length; i++) {
+            ctx.beginPath();
+            if (IsHittingAnySphere)
+                ctx.fillStyle = "Red";
+            else
+                ctx.fillStyle = "Green";
+            ctx.arc(spheres[i].x, spheres[i].y, SPHERE_RADIUS, 0, Math.PI * 2, true);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        //Draw one extra that is closest
+        var closestSphereIndex = GetClosestSphereIndex(px, py);
+        ctx.beginPath();
+        ctx.fillStyle = "Blue";
+        ctx.arc(spheres[closestSphereIndex].x, spheres[closestSphereIndex].y, SPHERE_RADIUS, 0, Math.PI * 2, true);
+        ctx.closePath();
+        ctx.fill();
+
+
+        //Draw the ones that are closest to each other that not is the player
+        var closestSphereIndexes = new GetClosestSphereSphereIndexes();
+        ctx.beginPath();
+        ctx.fillStyle = "Cyan";
+        ctx.arc(spheres[closestSphereIndexes.a].x, spheres[closestSphereIndexes.a].y, SPHERE_RADIUS, 0, Math.PI * 2, true);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.fillStyle = "Cyan";
+        ctx.arc(spheres[closestSphereIndexes.b].x, spheres[closestSphereIndexes.b].y, SPHERE_RADIUS, 0, Math.PI * 2, true);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    var CheckCollisionAndResolveWithClosestPointOnLineToSphere = function () {
+
+        //If Sphere velocity > Sphere Radius the sphere will pass the line in one frame, need to do sweep checks in that case.
+
+        //it is critical to get the first collision (the smallest) otherwise it will be a jerky movement.
+        //Get the closest line and its Index in the array.
+        var closestLineIndex = GetClosestLineIndex(px, py);
+
+        //Get the closest point on the line that is closest
+        var cp = new ClosetPointOnLine(lines[closestLineIndex].x,
+                                       lines[closestLineIndex].y,
+                                       lines[closestLineIndex].x2,
+                                       lines[closestLineIndex].y2,
+                                       px,
+                                       py);
+        //Get the distance from that point to the spheres position
+        var distance = LineLength(px, py, cp.x, cp.y);
+
+        //Check if the sphere intersect the closest line.
+        if (distance < SPHERE_RADIUS) {
+            //Get the scalar value of the penetrated distance            
+            //If we dont use:  + (1 / 32) we might get maximum calls in the recursion. 
+            //John Carmack uses the same amount in Quake, Doom etc.
+            var scalarDistanceToPush = (SPHERE_RADIUS - distance) + (1 / 32);
+            //Get the collided line normalized int the direction of the closest point to the sphere (this is normalized)
+            //Make sure this is in the right direction ClosestPoint - > Sphere
+            var sphereClosestPointOnLineNormal = new LineNormalized(cp.x, cp.y, px, py);
+            //Push the sphere out with the normalized line vector with the penetration length
+            px += sphereClosestPointOnLineNormal.dx * scalarDistanceToPush;
+            py += sphereClosestPointOnLineNormal.dy * scalarDistanceToPush;
+			
+			
+			//we need to loose all the velocity compared to the wall normal and the velocity direction.
+			
+            //we have moved the position of the sphere so we need to check again in case we pushed it into another line.
+            CheckCollisionAndResolveWithClosestPointOnLineToSphere();
+        }
+    };
+
+
+    var CheckCollisionWithOtherSpheresAndResolveWithSeparation = function () {
+
+        //it is critical to get the first collision (the smallest) otherwise it will be a jerky movement.
+        var closestSphereIndex = GetClosestSphereIndex(px, py);
+
+        var distance = LineLength(px, py, spheres[closestSphereIndex].x, spheres[closestSphereIndex].y);
+
+        ////Check if the sphere intersect the closest line.
+        if (distance < (SPHERE_RADIUS * 2)) {
+            //Get the scalar value of the penetrated distance    
+            //If we dont use:  + (1 / 32) we might get maximum calls in the recursion. 
+            //John Carmack uses the same amount in Quake, Doom etc.
+            var scalarDistanceToPush = ((SPHERE_RADIUS * 2) - distance) + (1 / 32);
+
+            //Make sure this is in the right direction ClosestSphere - > Sphere
+            ////remember, we push the spheres that are in the way, not the playes sphere.
+            var pushVector = new LineNormalized(px, py, spheres[closestSphereIndex].x, spheres[closestSphereIndex].y);
+            ////Push the sphere out with the normalized line vector with the penetration length
+            spheres[closestSphereIndex].x += pushVector.dx * scalarDistanceToPush;
+            spheres[closestSphereIndex].y += pushVector.dy * scalarDistanceToPush;
+
+            //we have moved the position of the sphere so we need to check again in case we pushed it into another line.
+            CheckCollisionWithOtherSpheresAndResolveWithSeparation();
+        }
+    };
+
+    var CheckCollisionWithSphereSpheresAndResolveWithSeparation = function () {
+
+        //it is critical to get the first collision (the smallest) otherwise it will be a jerky movement.
+        //Find out the closest Sphere intersections by testing all combinations of spheres.
+        var closestSphereIndexes = new GetClosestSphereSphereIndexes();
+
+        var distance = LineLength(spheres[closestSphereIndexes.a].x, spheres[closestSphereIndexes.a].y, spheres[closestSphereIndexes.b].x, spheres[closestSphereIndexes.b].y);
+
+        //Check if the sphere intersect the closest line.
+        if (distance < (SPHERE_RADIUS * 2)) {
+            //Get the scalar value of the penetrated distance            
+            var scalarDistanceToPush = ((SPHERE_RADIUS * 2) - distance) + (1 / 32);
+
+            //Make sure this is in the right direction ClosestSphere - > Sphere
+            ////remember, we push the spheres that are in the way, not the playes sphere.
+            var pushVectorA = new LineNormalized(spheres[closestSphereIndexes.a].x, spheres[closestSphereIndexes.a].y, spheres[closestSphereIndexes.b].x, spheres[closestSphereIndexes.b].y);
+            var pushVectorB = new LineNormalized(spheres[closestSphereIndexes.b].x, spheres[closestSphereIndexes.b].y, spheres[closestSphereIndexes.a].x, spheres[closestSphereIndexes.a].y);
+
+            //Push the spheres in opposit direction from their current positions.
+
+            ////Push the sphere out with the normalized line vector with the penetration length
+            //only push them half distance each so the sum will be total length of the pushvector.
+
+            //If we dont use:  + (1 / 32) we might get maximum calls in the recursion. 
+            //John Carmack uses the same amount in Quake, Doom etc.
+
+            spheres[closestSphereIndexes.a].x += pushVectorB.dx * (scalarDistanceToPush / 2) + (1 / 32);
+            spheres[closestSphereIndexes.a].y += pushVectorB.dy * (scalarDistanceToPush / 2) + (1 / 32);
+
+            spheres[closestSphereIndexes.b].x += pushVectorA.dx * (scalarDistanceToPush / 2) + (1 / 32);
+            spheres[closestSphereIndexes.b].y += pushVectorA.dy * (scalarDistanceToPush / 2) + (1 / 32);
+
+            //we have moved the position of the spheres so we need to check again in case we pushed it into another sphere.
+            CheckCollisionWithSphereSpheresAndResolveWithSeparation();
+        }
+    };
+
+
+    var GameLoop = function() {
+
+        //Get input
+        vx = (mouse_x - px) * 0.05;
+        vy = (mouse_y - py) * 0.05;
+
+        //Update position of sphere
+        px += vx;
+        py += vy;
+
+        //Check for collision and resolve if penetration detected
+        CheckCollisionAndResolveWithClosestPointOnLineToSphere();
+        CheckCollisionWithOtherSpheresAndResolveWithSeparation();
+        CheckCollisionWithSphereSpheresAndResolveWithSeparation();
+
+        //Draw
+        drawCanvasBox();
+        drawBall();
+        drawLines();
+        drawSpheres();
+        //AddGravity(9.82);
+
+        gLoop = setTimeout(GameLoop, 1000 / 30);
+    }
+
+</script>
+
+</body>
+</html>

@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Collision Detection and Resolvment</title>
+</head>
+<body onload="Init()">
+   
+<canvas id="myCanvas" width="1200" height="1000" style="border: 1px solid #c3c3c3;">
+    Your browser does not support the HTML5 canvas tag.
+</canvas>
+
+<script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.2.6/jquery.min.js"></script>
+<!--<script type="text/javascript" src="victor.js"></script>-->
+<script type="text/javascript">
+
+    var px = 350;
+    var py = 200;
+
+    var vx = 0;
+    var vy = 0;
+
+    var mouse_x = 0;
+    var mouse_y = 0;
+
+    var WIDTH = 1200;
+    var HEIGHT = 900;
+
+    var SPHERE_RADIUS = 30;
+
+    var c = document.getElementById("myCanvas");
+    var ctx = c.getContext("2d");
+
+
+    var sPlane = function(a, b) {
+        this.a = a;
+        this.b = b;
+    };
+    sPlane.prototype.closetPointOnLine = function(p) {
+
+        var x = this.a.x;
+        var y = this.a.y;
+        var x2 = this.b.x;
+        var y2 = this.b.y;
+
+        var px = p.x;
+        var py = p.y;
+
+        var APx = px - x;
+        var APy = py - y;
+        var ABx = x2 - x;
+        var ABy = y2 - y;
+        var ab2 = ABx * ABx + ABy * ABy;
+        var ap_ab = APx * ABx + APy * ABy;
+        var t = ap_ab / ab2;
+
+        if (t < 0.0) t = 0.0;
+        else if (t > 1.0) t = 1.0;
+
+        var resX = x + ABx * t;
+        var resY = y + ABy * t;
+
+        var closest = Victor(resX, resY);
+
+        return closest;
+
+    };
+
+    var containerX = document.getElementById("myCanvas").offsetLeft;
+    var containerY = document.getElementById("myCanvas").offsetTop;
+
+    var Plane = function(_x, _y, _x2, _y2) {
+        this.x = _x;
+        this.y = _y;
+        this.x2 = _x2;
+        this.y2 = _y2;
+    };
+
+    Plane.prototype.lineLength = function() {
+        var _x = this.x;
+        var _y = this.y;
+        var _x2 = this.x2;
+        var _y2 = this.y2;
+
+        var length = Math.sqrt((_x -= _x2) * _x + (_y -= _y2) * _y);
+        return length;
+    };
+
+
+    Plane.prototype.closetPointOnLine = function(px, py) {
+        var APx = px - this.x;
+        var APy = py - this.y;
+        var ABx = this.x2 - this.x;
+        var ABy = this.y2 - this.y;
+        var ab2 = ABx * ABx + ABy * ABy;
+        var ap_ab = APx * ABx + APy * ABy;
+        var t = ap_ab / ab2;
+
+        if (t < 0.0) t = 0.0;
+        else if (t > 1.0) t = 1.0;
+
+        return {
+            x: this.x + ABx * t,
+            y: this.y + ABy * t
+        };
+    };
+    Plane.prototype.normal = function(px, py) {
+        var cx = this.closetPointOnLine(px, py).x;
+        var cy = this.closetPointOnLine(px, py).y;
+        var lengthClosestToPlayer = lineLength(px, py, cx, cy);
+
+        return {
+            nx: ((px - cx) / lengthClosestToPlayer),
+            ny: ((py - cy) / lengthClosestToPlayer)
+        };
+    };
+
+    Plane.prototype.lineNormal = function() {
+        var ax = this.x, bx = this.x2, ay = this.y, by = this.y2;
+
+        var vx2 = bx - ax;
+        var vy2 = by - ay;
+
+        var length = Math.sqrt(vx2 * vx2 + vy2 * vy2);
+
+        return {
+            nx: (vy2) / length,
+            ny: (-vx2) / length
+        };
+
+    };
+
+    Plane.prototype.slidingPlane = function(px, py, vx, vy) {
+        var nx = this.normal(px, py).nx;
+        var ny = this.normal(px, py).ny;
+        var dotN = ((vx * nx) + (vy * ny));
+        vx -= nx * dotN;
+        vy -= ny * dotN;
+        return {
+            vx: vx,
+            vy: vy
+        };
+    };
+    Plane.prototype.VdotN = function(vx, vy) {
+        var lineNormalX = this.lineNormal().nx;
+        var lineNormalY = this.lineNormal().ny;
+        var vDotN = vx * lineNormalX + vy * lineNormalY;
+        return vDotN;
+    };
+
+    Plane.prototype.isFacingPlane = function(vx, vy) {
+        return (this.VdotN(vx, vy) < 0);
+    };
+    Plane.prototype.distance = function(px, py) {
+        var cx = this.closetPointOnLine(px, py).x;
+        var cy = this.closetPointOnLine(px, py).y;
+        var distance = lineLength(px, py, cx, cy);
+        return distance - SPHERE_RADIUS;
+    };
+    Plane.prototype.isOnLine = function(px, py) {
+        return (this.distance(px, py) < 0);
+    };
+    Plane.prototype.collisionAmount = function(px, py) {
+        var dist = this.distance(px, py);
+        if (dist < 0) {
+            return dist;
+        }
+        return 0;
+    };
+
+
+    var lines = [
+        { x: 100, y: 100, x2: 400, y2: 400, overlap: 0 },
+        { x: 400, y: 400, x2: 600, y2: 80, overlap: 0 },
+        { x: 0, y: 730, x2: 800, y2: 800, overlap: 0 },
+        { x: 800, y: 800, x2: 900, y2: 900, overlap: 0 },
+        { x: 600, y: 380, x2: 900, y2: 380, overlap: 0 },
+        { x: 900, y: 380, x2: 700, y2: 590, overlap: 0 },
+        { x: 0, y: 580, x2: 900, y2: 690, overlap: 0 },
+        { x: 900, y: 580, x2: 1200, y2: 190, overlap: 0 },
+        { x: 850, y: 780, x2: 1200, y2: 690, overlap: 0 },
+        { x: 680, y: 580, x2: 680, y2: 690, overlap: 0 },
+        { x: 720, y: 150, x2: 800, y2: 290, overlap: 0 },
+        { x: 800, y: 290, x2: 810, y2: 150, overlap: 0 }
+    ];
+
+
+    var keys = {};
+
+    $(document).keydown(function(e) {
+        switch (e.keyCode) {
+        case 87:
+            vy -= 1;
+            //move_up();
+            break;
+        case 83:
+            vy += 1;
+            //move_up();
+            break;
+        case 65:
+            vx -= 1;
+            //move_up();
+            break;
+        case 68:
+            vx += 1;
+            //move_up();
+            break;
+        case 32:
+            vy -= 9;
+            break;
+        case 80:
+            //Case 'P'
+            break;
+        case 77:
+            // Case 'M'
+            break;
+        case 13:
+            break;
+        default:
+            break;
+        }
+        keys[e.which] = true;
+    });
+
+
+    function findPos(obj) {
+        var curleft = 0, curtop = 0;
+        if (obj.offsetParent) {
+            do {
+                curleft += obj.offsetLeft;
+                curtop += obj.offsetTop;
+            } while (obj = obj.offsetParent);
+            return { x: curleft, y: curtop };
+        }
+        return undefined;
+    }
+
+    $("#myCanvas").mousemove(function(e) {
+        var pos = findPos(this);
+        mouse_x = e.pageX - pos.x;
+        mouse_y = e.pageY - pos.y;
+
+    });
+
+
+    $("#myCanvas").click(function(e) {
+        px = e.pageX;
+        py = e.pageY;
+
+    });
+
+
+    var LineLength = function(x, y, x0, y0) {
+        return Math.sqrt((x -= x0) * x + (y -= y0) * y);
+    };
+
+    function LineNormal(x, y, x2, y2) {
+        var vx2 = x2 - x;
+        var vy2 = y2 - y;
+
+        var length = Math.sqrt(vx2 * vx2 + vy2 * vy2);
+
+        this.dx = (vy2) / length;
+        this.dy = (-vx2) / length;
+    }
+
+    function LineNormalized(x, y, x2, y2) {
+        var vx2 = x2 - x;
+        var vy2 = y2 - y;
+
+        var length = Math.sqrt(vx2 * vx2 + vy2 * vy2);
+
+        this.dx = (vx2) / length;
+        this.dy = (vy2) / length;
+    }
+
+
+    function ClosetPointOnLine(ax, ay, bx, by, px, py) {
+        var APx = px - ax;
+        var APy = py - ay;
+        var ABx = bx - ax;
+        var ABy = by - ay;
+        var ab2 = ABx * ABx + ABy * ABy;
+        var ap_ab = APx * ABx + APy * ABy;
+        var t = ap_ab / ab2;
+
+        if (t < 0.0) t = 0.0;
+        else if (t > 1.0) t = 1.0;
+
+        this.x = ax + ABx * t;
+        this.y = ay + ABy * t;
+    }
+
+
+    var Init = function() {
+
+        GameLoop();
+    }
+
+    var drawLines = function() {
+        ctx.strokeStyle = "#299";
+        ctx.fillStyle = "#FFFF00";
+        for (var i = 0; i < lines.length; i++) {
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(lines[i].x, lines[i].y);
+            ctx.lineTo(lines[i].x2, lines[i].y2);
+            ctx.stroke();
+        }
+
+
+        ctx.strokeStyle = "#299";
+        ctx.fillStyle = "#FFFF00";
+
+        for (var i = 0; i < lines.length; i++) {
+
+            var xmid = (lines[i].x + lines[i].x2) / 2;
+            var ymid = (lines[i].y + lines[i].y2) / 2;
+
+            var ln = new LineNormal(lines[i].x, lines[i].y, lines[i].x2, lines[i].y2);
+
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(xmid, ymid);
+            ctx.lineTo(xmid + ln.dx * 30, ymid + ln.dy * 30);
+            ctx.stroke();
+        }
+
+
+        ctx.strokeStyle = "#GGG";
+        ctx.fillStyle = "#FFFF00";
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(px, py);
+        ctx.lineTo(px + vx, py + vy);
+        ctx.stroke();
+    }
+
+
+    var drawCanvasBox = function() {
+        ctx.fillStyle = "#000000";
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+    }
+
+
+    var AddGravity = function(gravity) {
+        if (vy < gravity)
+            vy += 0.5;
+
+    }
+
+    var GetClosestLineIndex = function(px, py) {
+        //Get the closest Line
+        var closestLine = 0;
+        var temp = 999999;
+        for (var i = 0; i < lines.length; i++) {
+            var closestpoint = new ClosetPointOnLine(lines[i].x, lines[i].y, lines[i].x2, lines[i].y2, px, py);
+            var l = LineLength(px, py, closestpoint.x, closestpoint.y);
+            //Get the smallest diff first, so we take the wall we are closest to.
+            if (l < temp) {
+                temp = l;
+                closestLine = i;
+            }
+        }
+        return closestLine;
+    }
+
+
+    function compare(a, b) {
+        if (a.overlap > b.overlap)
+            return 1;
+        if (a.overlap < b.overlap)
+            return -1;
+        return 0;
+    }
+
+    var ProjectPointOnLine = function(ax, ay, bx, by, px, py) {
+        var ABx = (bx - ax) / lineLength(ax, ay, bx, by);
+        var ABy = (by - ay) / lineLength(ax, ay, bx, by);
+        var APx = px - ax;
+        var APy = py - ay;
+        var dot = ABx * APx + ABy * APy;
+        this.x = ax + ABx * dot;
+        this.y = ay + ABy * dot;
+    };
+
+
+    var drawBall = function() {
+        ctx.beginPath();
+        ctx.fillStyle = "#FFFF00";
+        ctx.arc(px, py, SPHERE_RADIUS, 0, Math.PI * 2, true);
+        ctx.closePath();
+        ctx.fill();
+
+        var closest = GetClosestLineIndex(px, py);
+        var closestpoint = new ClosetPointOnLine(lines[closest].x,
+            lines[closest].y,
+            lines[closest].x2,
+            lines[closest].y2,
+            px,
+            py);
+
+        ctx.beginPath();
+        ctx.fillStyle = "#FFFF00";
+        ctx.arc(closestpoint.x, closestpoint.y, 10, 0, Math.PI * 2, true);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillText("Click on Mouse to select new Position", 50, 50);
+        ctx.fillStyle = "rgba(0, 255, 255,1)";
+        ctx.font = "11pt Verdana";
+        ctx.fillText("px:" + px + "vx: " + vx, 50, 90);
+        ctx.fillText("py:" + py + "vy: " + vy, 50, 110);
+        ctx.fillText("w = up, a = left, d = right, s = down, space = jump", 50, 130);
+        ctx.fillText("Sphere Radius: " + SPHERE_RADIUS, 50, 150);
+
+
+        var velocityScalar = LineLength(0, 0, vx, vy);
+        ctx.fillText("Velocity Length: " + velocityScalar, 50, 170);
+        
+    }
+
+    var CheckCollisionAndResolveWithClosestPointOnLineToSphere = function () {
+
+        //If Sphere velocity > Sphere Radius the sphere will pass the line in one frame, need to do sweep checks in that case.
+
+        //Get the closest line and its Index in the array.
+        var closestLineIndex = GetClosestLineIndex(px, py);
+
+        //Get the closest point on the line that is closest
+        var cp = new ClosetPointOnLine(lines[closestLineIndex].x,
+                                       lines[closestLineIndex].y,
+                                       lines[closestLineIndex].x2,
+                                       lines[closestLineIndex].y2,
+                                       px,
+                                       py);
+        //Get the distance from that point to the spheres position
+        var distance = LineLength(px, py, cp.x, cp.y);
+
+        //Check if the sphere intersect the closest line.
+        if (distance < SPHERE_RADIUS) {
+            //Get the scalar value of the penetrated distance            
+            var scalarDistanceToPush = (SPHERE_RADIUS - distance) + (1 / 32);
+            //Get the collided line normalized int the direction of the closest point to the sphere (this is normalized)
+            //Make sure this is in the right direction ClosestPoint - > Sphere
+            var sphereClosestPointOnLineNormal = new LineNormalized(cp.x, cp.y, px, py);
+            //Push the sphere out with the normalized line vector with the penetration length
+            px += sphereClosestPointOnLineNormal.dx * scalarDistanceToPush;
+            py += sphereClosestPointOnLineNormal.dy * scalarDistanceToPush;
+
+            //we have moved the position of the sphere so we need to check again in case we pushed it into another line.
+            CheckCollisionAndResolveWithClosestPointOnLineToSphere();
+        }
+    };
+
+
+    var GameLoop = function() {
+
+        //Get input
+        vx = (mouse_x - px) * 0.05;
+        vy = (mouse_y - py) * 0.05;
+
+        //Update position of sphere
+        px += vx;
+        py += vy;
+
+        //Check for collision and resolve if penetration detected
+        CheckCollisionAndResolveWithClosestPointOnLineToSphere();
+
+        //Draw
+        drawCanvasBox();
+        drawBall();
+        drawLines();
+        //AddGravity(9.82);
+
+        gLoop = setTimeout(GameLoop, 1000 / 30);
+    }
+
+</script>
+
+</body>
+</html>
